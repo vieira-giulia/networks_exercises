@@ -96,9 +96,9 @@ def cli():
         client_socket = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM)
     server_address = (sys.argv[1], int(sys.argv[2]))
     
-    #client_socket.settimeout(TIMEOUT)
+    client_socket.settimeout(TIMEOUT)
 
-    #last_request_time = time.time()
+    last_request_time = time.time()
 
     while True:
         try:
@@ -181,12 +181,12 @@ def cli():
                 handle_error(1)
                 break
 
-        #except socket.timeout:
-        #    if time.time() - last_request_time > TIMEOUT_THRESHOLD:
-        #        print("Timeout occurred. Resending request...")
-        #        last_request_time = time.time()
-        #    else:
-        #       print("Timeout occurred, but not enough time has passed since the last request.")
+        except socket.timeout:
+            if time.time() - last_request_time > TIMEOUT_THRESHOLD:
+                print("Timeout occurred. Resending request...")
+                last_request_time = time.time()
+            else:
+               print("Timeout occurred, but not enough time has passed since the last request.")
         except Exception as e:
             print("Exceptional error:", e)
             break
