@@ -85,9 +85,7 @@ def handle_group_token_request(data, client_address):
         send_error(client_address, INCORRECT_MESSAGE_LENGTH)
         return
     
-    print(data[2:])
     group_token = generate_token(data[2:])
-    print(group_token)
     response = struct.pack('!H', 6) + struct.pack('!H', count) + data[2:] + group_token.encode('ascii')
     
     sas_list = [data[i:i+80] for i in range(2, len(data), 80)]
@@ -122,10 +120,7 @@ def handle_group_token_validation(data, client_address):
             return
     
     # Validate token
-    print(data[2:-64])
     correct_token = generate_token(data[2:-64])
-    print(token)
-    print(correct_token)
     status = 1
     if token == correct_token:
         status = 0

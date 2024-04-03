@@ -84,13 +84,18 @@ def handle_error(error_code):
         print("Unknown error")
 
 # COMMAND LINE INTERFACE
+
         
 def cli():
     global client_socket
     # Create a UDP socket that supports both IPv4 and IPv6
-    #client_socket = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM)
-    client_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        client_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    except OSError:
+        # If IPv4 is not supported, attempt to create a socket with IPv6
+        client_socket = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM)
     server_address = (sys.argv[1], int(sys.argv[2]))
+    
     #client_socket.settimeout(TIMEOUT)
 
     #last_request_time = time.time()
