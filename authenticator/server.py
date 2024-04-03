@@ -22,7 +22,6 @@ def handle_individual_token_request(data, client_address):
     if len(data) != 16:
         send_error(client_address, INCORRECT_MESSAGE_LENGTH)
         return
-    
     try:
         # Get student id and nonce from client data package
         student_id = data[:12].decode('ascii').strip()
@@ -36,7 +35,6 @@ def handle_individual_token_request(data, client_address):
     
     # Generate token
     token = generate_token((student_id + str(nonce)).encode('ascii'))
-    
     # Response: 2     | ID            | nonce         | token            
     response = struct.pack('!H', 2) + data[:16] + token.encode('ascii')
     server_socket.sendto(response, client_address)
@@ -87,12 +85,11 @@ def handle_group_token_request(data, client_address):
         send_error(client_address, INCORRECT_MESSAGE_LENGTH)
         return
     
-    # Suppose all sas are true
+    print(data[2:].decode())
     group_token = generate_token(data[2:])
     response = struct.pack('!H', 6) + struct.pack('!H', count) + data[2:] + group_token.encode('ascii')
-    # Check if any SAS is not true
+    
     sas_list = [data[i:i+80] for i in range(2, len(data), 80)]
-
     for sas in sas_list:
         try:
             student_id = sas[:12].decode('ascii').strip()
@@ -124,10 +121,11 @@ def handle_group_token_validation(data, client_address):
             return
     
     # Validate token
-    if token == generate_token(data[:-64]):
+    print(data[:-64].decode())
+    correct_token = generate_token(data[:-64])
+    status = 1
+    if token == correct_token:
         status = 0
-    else:
-        status = 1
     # Response: 8     | N     | SAA-1     | SAA-2     | SAA-N     | token   | s 
     response = struct.pack('!H', 8) + data[2:] + struct.pack('B', status)
     server_socket.sendto(response, client_address)

@@ -88,11 +88,12 @@ def handle_error(error_code):
 def cli():
     global client_socket
     # Create a UDP socket that supports both IPv4 and IPv6
-    client_socket = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM)
+    #client_socket = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM)
+    client_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     server_address = (sys.argv[1], int(sys.argv[2]))
-    client_socket.settimeout(TIMEOUT)
+    #client_socket.settimeout(TIMEOUT)
 
-    last_request_time = time.time()
+    #last_request_time = time.time()
 
     while True:
         try:
@@ -164,6 +165,7 @@ def cli():
                 # Decode message type, see if there is an error
                 message_type = int.from_bytes(binary_data[:2], byteorder='big')
                 if message_type ==  ERROR:
+                    print("aaaa")
                     handle_error(struct.unpack('!H', binary_data[2:4])[0])
                 else:
                     # Status 0 = pass, 1 = not pass
@@ -175,17 +177,17 @@ def cli():
                 handle_error(1)
                 break
 
-        except socket.timeout:
-            if time.time() - last_request_time > TIMEOUT_THRESHOLD:
-                print("Timeout occurred. Resending request...")
-                last_request_time = time.time()
-            else:
-                print("Timeout occurred, but not enough time has passed since the last request.")
+        #except socket.timeout:
+        #    if time.time() - last_request_time > TIMEOUT_THRESHOLD:
+        #        print("Timeout occurred. Resending request...")
+        #        last_request_time = time.time()
+        #    else:
+        #       print("Timeout occurred, but not enough time has passed since the last request.")
         except Exception as e:
             print("Exceptional error:", e)
             break
 
-    client_socket.close()
+    #client_socket.close()
 
 if __name__ == "__main__":
     cli()
