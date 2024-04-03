@@ -165,7 +165,6 @@ def cli():
                 # Decode message type, see if there is an error
                 message_type = int.from_bytes(binary_data[:2], byteorder='big')
                 if message_type ==  ERROR:
-                    print("aaaa")
                     handle_error(struct.unpack('!H', binary_data[2:4])[0])
                 else:
                     # Status 0 = pass, 1 = not pass
