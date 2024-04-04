@@ -3,6 +3,7 @@ import json
 import hashlib
 import random
 import sys
+import struct
 
 N_BRIDGES = 8
 
@@ -10,16 +11,10 @@ N_BRIDGES = 8
 class Game:  
     def start(self, river):
         self.river = river
-        self.cannons = []
+        self.cannons = [[1,0], [3,0], [8,1], [2,2], [3,3], [8,4]]
         self.ships = []
-        n = random.randint(1, 32)
+        n = 5
         for i in range(n):
-            # Generate cannons:
-            # at a bridge
-            y = random.randint(1, N_BRIDGES)
-            # up or down from server's river
-            x = random.randint(river-1, river)
-            self.cannons.append([x, y])
             # Generate ships at server's river
             # from a specific type and max hits
             ship_types = ["frigate", "destroyer", "battleship"]
@@ -65,9 +60,25 @@ def send_message(message, client_address):
 
 # AUTHENTICATION REQUEST
 
+def sas_to_bin(data):
+    student_id, nonce, token = data.split(':')
+    student_id_bytes = student_id.encode('ascii').ljust(12)
+    nonce_bytes = struct.pack('!I', int(nonce))
+    token_bytes = token.encode('ascii')
+    return (student_id_bytes + nonce_bytes + token_bytes)
+
+def gas_to_bin(data):
+    gas = data.split('+')
+    sas_list_bytes = [sas_to_bin(gas[i]) for i in range(len(gas)-1)]
+    token_bytes = gas[-1].encode('ascii')
+    return sas_list_bytes, token_bytes
+
 def verify_gas(gas):
-    correct_token = hashlib.sha256(gas[-64].encode()).hexdigest()
-    if  correct_token == gas[-64:]: 
+    gas_list, bin_token = gas_to_bin(gas)
+    gas_list.append(bin_token)
+    message = struct.pack('!HH', 7, len(gas_list)-1) + b''.join(gas_list)
+    correct_token = hashlib.sha256(message[4:-64]).hexdigest()
+    if correct_token == gas[-64:]: 
         return 0
     else: 
         return 1
@@ -138,6 +149,17 @@ def handle_game_termination_request(request, game, client_address):
         }
     send_message(message, client_address)
 
+
+# GAMEOVER BY INVALID MESSAGE
+
+def handle_game_termination_by_invalid_message(game, client_address):
+    message = {
+        "type": "gameover", 
+        "status": 1, 
+        "score": {game.score}
+        }
+    send_message(message, client_address)
+
     
 ########### SERVER ###############
 
@@ -170,7 +192,7 @@ def serve():
             handle_game_termination_request(request_json, game, client_address)
             break
         else:
-            print("Unsupported request type")
+            handle_game_termination_by_invalid_message(game, client_address)
             break
         
 

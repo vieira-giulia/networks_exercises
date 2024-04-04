@@ -6,17 +6,13 @@ import sys
 N_RIVERS = 4
 N_BRIDGES = 8
 
-FRIGATE = 1
-DESTROYER = 2
-BATTLESHIP = 3
-
-#selector = selectors.DefaultSelector()
+selector = selectors.DefaultSelector()
 
 
 # GAME VARIABLES
 
 class Game:
-    river, turn = 0, 0
+    river = 0
     cannons = []
 
 
@@ -29,7 +25,8 @@ def get_socket(server_name):
         # If IPv4 is not supported, attempt to create a socket with IPv6
         client_socket = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM)
     client_socket.setblocking(False) 
-    #selector.register(client_socket, selectors.EVENT_READ, data=server_name)
+    selector.register(client_socket, selectors.EVENT_READ, data=server_name)
+    print("Socket for", server_name, "setup successfully!")
     return client_socket
 
 
@@ -52,6 +49,7 @@ def send_message(client_socket, server_address,
 def receive_message(client_socket):
     return json.loads(client_socket.recv(1024).decode())
     
+
 
 # COMMAND LINE INTERFACE
   
@@ -90,46 +88,46 @@ def cli():
             else:
                 pass
 
-            # Generate grid for printing game on terminal
-            # This is just so I understand what is happening better
-            grid = [[' ' for _ in range(N_BRIDGES + 1)] for _ in range(N_RIVERS + 1)]
+            if request_type in ["authreq", "quit", "getturn"]:
+                for _, server_infos in servers.items():
+                    send_message(client_socket=server_infos["client_socket"],
+                                server_address=server_infos["server_address"],
+                                request_type=request_type, gas=gas, 
+                                turn=turn, cannon_coord=cannon_coord, ship_id=ship_id)
             
-            # Accumulator for score display at the end
-            # Also just for my understanding
-            total_score = 0
-
-            # If user asks to quit, print results for each server
-            # Also just for my understanding
-            if request_type == "quit":
-                # Print table header
-                print("River | Score")
-                print("---------------------")
-            
-            # If user asks for turn_status, print adjacent table with
-            # ship_ids and their status
-            # Also just for my understanding
-            elif request_type == "getturn":
-                # Print table with current ships and their individual info
-                print("Ship ID | Hull      | Hits | Shots to Sink")
-                print("-------------------------------------------")
-            
-            # Send message to all servers.
-            # Messages have similar formats so I made only one send_message 
-            # function that fills the json with necessary information for
-            # every type of request
-            for _, server_infos in servers.items():
+            elif request_type == "getcannons":
+                server_infos = servers.get("Server 1")
                 send_message(client_socket=server_infos["client_socket"],
                             server_address=server_infos["server_address"],
                             request_type=request_type, gas=gas, 
                             turn=turn, cannon_coord=cannon_coord, ship_id=ship_id)
+            
+            elif request_type == "shot":
+                for server_name, game_info in games.items():
+                    if game_info.river == cannon_coord[1]:
+                        server_infos = servers.get(server_name)
+                        send_message(client_socket=server_infos["client_socket"],
+                            server_address=server_infos["server_address"],
+                            request_type=request_type, gas=gas, 
+                            turn=turn, cannon_coord=cannon_coord, ship_id=ship_id)
+                    if game_info.river == cannon_coord[1]+1:
+                        server_infos = servers.get(server_name)
+                        send_message(client_socket=server_infos["client_socket"],
+                            server_address=server_infos["server_address"],
+                            request_type=request_type, gas=gas, 
+                            turn=turn, cannon_coord=cannon_coord, ship_id=ship_id)
 
-                # Get responses for requests.
-                # Response format is also a generalized json, so I made
-                # one function that takes care of that and evaluate information
-                # given afterwards
-                #events = selector.select()
-                responses = []
-                #for key, _ in events:
+            else:
+                print("invalid request")
+                break
+
+            # Get responses for requests.
+            # Response format is also a generalized json, so I made
+            # one function that takes care of that and evaluate information
+            # given afterwards
+            events = selector.select()
+            responses = []
+            for key, _ in events:
                 # Only case where response is actually a list of messages
                 if request_type == "getturn":
                     while len(responses) < N_BRIDGES:
@@ -137,96 +135,47 @@ def cli():
                 else:
                     response = receive_message(servers.get(key.data)["client_socket"])
                     print(response)
-                
-                # Request receives only one response
+                    
                 if response:
-                    # Status come for authentication and shooting
-                    # In both cases 0 means it worked and anything different
-                    # means it didn't
-                    # In this project's specification there was no need to 
-                    # stop communication in case either of them receive status != 0
-                    # so I decided to just warn the user and let him/her try again
                     if "status" in response:
                         if response["status"] == 0:
-                            print("Go forward")
+                            print("Success!")
                         else:
                             print("Error, try again")  
-                            
-                    # Get info received
+                                
                     if "river" in response:
                         games[key.data].river = response["river"]
-                        if response.get("turn"):
-                            games[key.data].turn = response["turn"]
-                            print("Turn " + response["turn"])  
-                            if response.get("cannons"):
-                                for coord in response["cannons"]:
-                                    games[key.data].cannons.append([coord[0], coord[1]])
-                                    # Mark printing grid
-                                    grid[coord[0]][coord[1]] = 'X'
-                            if response.get("score"):
-                                score = response["score"]
-                                total_score += score
-                                # Print score in a tabular format
-                                print(f"{games[key.data].server_id:^9} | {score:^26}")
+                        print("Server {} is river {}", key.data, response["river"])
 
-                    # Request receives many response messages  
+                    if "cannons" in response:
+                        for coord in response["cannons"]:
+                            if [coord[0], coord[1]] not in games[key.data].cannons:
+                                games[key.data].cannons.append([coord[0], coord[1]])
+
+                    if "score" in response:
+                        print("Server:", key.data)
+                        print("Score:", response["score"])
+
                     else:
                         for response in responses:
-                            # I used an aux variable ships_list to help me print ships locations
-                            # and information on terminal. I didn't put it in Game object because
-                            # ships are supposed to move every round, so there is no need to 
-                            # save old rounds positions or infos
                             ships_list = []
-                            if response.get("bridge") and response.get("ships"):
+                            if "bridge" in response and "ships" in response:
                                 ships_list[response["bridge"]] = response["ships"]
-                                
                                 # This is part of the ships information adjacent table
                                 # whose header was printted in the beginning
                                 for (bridge, ship_info) in enumerate(ships_list):
-                                    # Mark printing grid
-                                    grid[games[key.data].river][bridge] = ship_info["id"]
-                                # Mark ship info table
-                                hull = ship_info["hull"]
-                                if hull == 'frigate':
-                                    shots_to_sink = FRIGATE
-                                elif hull == 'destroyer':
-                                    shots_to_sink = DESTROYER
-                                elif hull == 'battleship':
-                                    shots_to_sink = BATTLESHIP
-                                print(f"{ship_info['id']:8} | {hull:9} | {ship_info['hits']:4} | {shots_to_sink:13}")      
-
-                    # For requests about the state of the game I decided to print the game's quadrants
-                    # in terminal so I can visualize cannons and ships positions
-                    # Cannons are marked with X, as seen before, and ships are marked with their id's
-                    if request_type in ["shot", "getturn", "getcannons"]:           
-                        # Print grid
-                        print('  +' + '-' * (N_BRIDGES * 3 + 1))
-                        for y, row in enumerate(grid):
-                            print(f'{y} |', end=' ')
-                            for x, cell in enumerate(row):
-                                print(cell if cell == 'X' else ' ', end=' | ' if x < N_BRIDGES else '')
-                            print('\n  +' + '-' * (N_BRIDGES * 3 + 1))
-                        print('    ', end='')
-                        for x in range(N_BRIDGES + 1):
-                            print(f'{x:2d}', end=' ')
-                        print('\n')
-
-                    # For quitting requests or if server decides for gameover, 
-                    # I use total_score accumulator described before also to help visualize results
-                    elif request_type == "quit":
-                        # Print totals
-                        print("--------------------------------")
-                        print(f"{'Total':^9} | {total_score:^26}")
-                        #selector.close()
-                        #sys.exit()
-                        break
+                                    print("ID:", ship_info['id'])
+                                    print("Bridge:", bridge)
+                                    print("River:", games[key.data].river)
+                                    print("HITS:", ship_info['hits'] )
+                                    print("HULL", ship_info["hull"]) 
+            break
                         
         # Exceptional error while using cli        
         except Exception as e:
             print("Exceptional error:", e)
-            #selector.close()
-            #sys.exit()
-            break
+            selector.close()
+            sys.exit()
 
 if __name__ == "__main__":
     cli()
