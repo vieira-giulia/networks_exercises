@@ -2,23 +2,18 @@ import socket
 import json
 import hashlib
 import random
+import sys
 
 N_BRIDGES = 8
 
-class BridgeDefenseServer:
-    # Generate server's variables
-    def __init__(self, port, river):
-        # Server's port
-        self.port = port
-        # Server's river 
+################ GAME ####################
+class Game:  
+    def start(self, river):
         self.river = river
-        # Server's cannons
         self.cannons = []
-        # Server's ships
         self.ships = []
         n = random.randint(1, 32)
-        n_ship = 1
-        for _ in range(n):
+        for i in range(n):
             # Generate cannons:
             # at a bridge
             y = random.randint(1, N_BRIDGES)
@@ -33,159 +28,151 @@ class BridgeDefenseServer:
             # near a bridge
             bridge = random.randint(1, N_BRIDGES)
             self.ships.append({
-                "id": n_ship,
+                "id": i,
                 "hull": hull,
                 "hits": 0,
                 "max_hits": max_hits,
                 "bridge": bridge
                 })
-            n_ship = n_ship+1
-            # Number of messages received
-            self.n_messages = 0
-            # Number of ships that remained alive and crossed last bridge
-            self.n_winning_ships = 0
-
     
-    # Start server at port
-    def serve(self):
-        # Open server at port
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
-            s.bind(('localhost', self.port))
-            print(f"Server on port {self.port} is listening...")
-            # Deal with requests
-            while True:
-                data, addr = s.recvfrom(1024)
-                message = json.loads(data.decode())
-                message_type = message.get("type")
-                if message_type == "authreq":
-                    self.n_messages = self.n_messages+1
-                    self.handle_auth_request(s, message, addr)
-                elif message_type == "getcannons":
-                    self.n_messages = self.n_messages+1
-                    self.handle_cannons_request(s, message, addr)
-                elif message_type == "getturn":
-                    self.n_messages = self.n_messages+1
-                    self.handle_turn_request(s, message, addr)
-                elif message_type == "shot":
-                    self.n_messages = self.n_messages+1
-                    self.handle_shot_request(message)
-                elif message_type == "quit":
-                    self.n_messages = self.n_messages+1
-                    self.handle_game_termination_request(message)
-                    break
-                else:
-                    print("Unsupported message type")
+            self.score = 0
     
-
-    # Generalized function to facilitate sending responses
-    def send_response(self, s, addr, response):
-        s.sendto(json.dumps(response).encode(), addr)
-
-    
-    # Check GAS validity for authentication
-    def handle_auth_request(self, s, message, addr):
-        # Verify GAS
-        status = 1
-        if hashlib.sha256(message["gas"][:-64]).hexdigest() == message['gas'][-64:]:
-            status = 0
-        # Generate and send response message
-        response = {
-            "type": "authresp",
-            "auth": message["auth"],
-            "status": status,
-            "river": self.river
-        }
-        self.send_response(s, addr, response)
-
-
-    # Send cannons display to client
-    def handle_cannons_request(self, s, message, addr):
-        # Generate and send response message
-        response = {
-            "type": "cannons",
-            "auth": message["auth"],
-            "cannons": self.cannons
-        }
-        self.send_response(s, addr, response)
-
-
-    # Send ships display to client per bridge
-    def handle_turn_request(self, s, message, addr):
-        # Get ships positions based on bridges
-        responses = []
-        for bridge in range(1, self.bridges):   
-            ships = [{"id": obj["id"], "hull": obj["hull"], "hits": obj["hits"]} 
-                     for obj in self.ships if obj.get("bridge") == bridge]
-            # Generate and send response message
-            responses.append({
-                "type": "state",
-                "auth": message["auth"],
-                "turn": message["turn"],
-                "bridge": bridge,
-                "ships": ships
-                })
-        self.send_response(s, addr, responses)
+    def update(self):
         # Move ships for the future
         for ship in self.ships:
             if ship["bridge"]+1 < N_BRIDGES:
                 ship["bridge"] = ship["bridge"]+1
             else:
-                self.n_winning_ships = self.n_winning_ships+1 
+                self.score = self.score+1
+    
+    def shoot_ship(self, ship_id, cannon_coord):
+        status = 1
+        if cannon_coord in self.cannons and any(item.get("id") == ship_id for item in self.ships):
+            if cannon_coord[1] in [self.ships[ship_id]["bridge"], self.ships[ship_id]["bridge"]]:
+                status = 0
+                if self.ships[ship_id]["hits"]+1 >= self.ships[ship_id]["max_hits"]:
+                    self.ships.pop(ship_id)
+                else:
+                    self.ships[ship_id]["hits"] = self.ships[ship_id]["hits"]+1
+        self.update()
+        return status
 
-    # Function to handle Shot Message
-    def handle_shot_request(self, s, message, addr):
-        # Extract shot details
-        cannon_coordinates = message["cannon"]
-        ship_id = message["id"]
-        # If the cannon and ship exist in this server
-        if cannon_coordinates in self.cannons and any(item.get("id") == ship_id for item in self.ships):
-            ship = next((index for index, item in enumerate(self.ships) if item.get("id") == ship_id), None)
-            # If ship is withing cannon's reach, shoot
-            if cannon_coordinates[1] in [self.ships[ship]["bridge"], self.ships[ship]["bridge"]]:
-                # Generate and send response message
-                shot_response = {
-                    "type": "shotresp",
-                    "auth": message["auth"],
-                    "cannon": cannon_coordinates,
-                    "id": ship_id,
-                    "status": 0
-                }
-                self.send_response(s, addr, shot_response)
-                # Kill ship if enough shots to kill it
-                if self.ships[ship]["hits"]+1 >= self.ships[ship]["max_hits"]:
-                     self.ships.pop(ship)
-            else:
-                # Generate and send error response message 
-                error_response = {
-                "type": "shotresp",
-                "auth": message["auth"],
-                "cannon": cannon_coordinates,
-                "id": ship_id,
-                "status": 1,
-                "description": "Invalid shot"
-                }
-                self.send_response(s, addr, error_response)
+
+########### MESSAGE HANDLING ########################
+
+def send_message(message, client_address):
+    server_socket.sendto(json.dumps(message).encode(), client_address)
+
+# AUTHENTICATION REQUEST
+
+def verify_gas(gas):
+    correct_token = hashlib.sha256(gas[-64].encode()).hexdigest()
+    if  correct_token == gas[-64:]: 
+        return 0
+    else: 
+        return 1
+
+def handle_auth_request(request, game, client_address):
+    status = verify_gas(request["auth"])
+    message = {
+        "type": "authresp",
+         "auth": request["auth"],
+        "status": status,
+        "river": game.river
+    }
+    send_message(message, client_address)
+
+
+# DISPLAY CANNONS NEAR THIS RIVER REQUEST
+
+def handle_cannons_request(request, game, client_address):
+    message = {
+        "type": "cannons",
+        "auth": request["auth"],
+        "cannons": game.cannons
+    }
+    send_message(message, client_address)
+
+
+# DISPLAY SHIPS IN THIS RIVER REQUEST
+
+def handle_turn_request(request, game, client_address):
+    # Get ships positions based on bridges
+    for bridge in range(1, N_BRIDGES):   
+        ships = [{"id": obj["id"], "hull": obj["hull"], "hits": obj["hits"]} 
+                 for obj in game.ships if obj.get("bridge") == bridge]
+        # Generate and send message request
+        message = {
+            "type": "state",
+            "auth": request["auth"],
+            "turn": request["turn"],
+            "bridge": bridge,
+            "ships": ships
+            }
+    
+        send_message(message, client_address)
+    game.update()
+
+
+# SHOT REQUEST
+
+def handle_shot_request(request, game, client_address):
+    status = game.shoot_ship(request["id"], request["cannon"])
+    message = {"type": "shotresp", 
+               "auth": request["auth"], 
+               "cannon": request["cannon"], 
+               "id": request["id"], 
+               "status": status
+            }
+    send_message(message, client_address)
 
     
-    # Function to handle Game Termination Request
-    def handle_game_termination_request(self, s, message, addr):
-        # Generate and send response message
-        gameover_response = {
-            "type": "gameover", 
-            "auth": message["auth"], 
-            "status": 0, 
-            "score": {"ships that crossed last bridge": self.n_winning_ships,
-                      "messages received": self.n_messages,
-                      "time": 0
-                      }}
-        self.send_response(s, addr, gameover_response)
+# QUITTING REQUEST
+
+def handle_game_termination_request(request, game, client_address):
+    message = {
+        "type": "gameover", 
+        "auth": request["auth"], 
+        "status": 0, 
+        "score": {game.score}
+        }
+    send_message(message, client_address)
+
+    
+########### SERVER ###############
+
+def serve():
+    # TODO TIMER FOR GAMEOVER
+    global server_socket
+    server_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    #server_socket = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM)
+    port = sys.argv[1]
+    server_socket.bind(('localhost', int(port)))
+        
+    print(f"Server on port {port} is listening...")
+        
+    game = Game()
+    game.start(int(port[-1]))
+       
+    while True:
+        request, client_address = server_socket.recvfrom(1024)
+        request_json = json.loads(request.decode())
+        request_type = request_json.get("type")
+        if request_type == "authreq":
+            handle_auth_request(request_json, game, client_address)
+        elif request_type == "getcannons":
+            handle_cannons_request(request_json, game, client_address)
+        elif request_type == "getturn":
+            handle_turn_request(request_json, game, client_address)
+        elif request_type == "shot":
+            handle_shot_request(request_json, game, client_address)
+        elif request_type == "quit":
+            handle_game_termination_request(request_json, game, client_address)
+            break
+        else:
+            print("Unsupported request type")
+            break
         
 
 if __name__ == "__main__":
-    global server_socket
-    ports = [51111, 51112, 51113, 51114]
-    rivers = [1, 2, 3, 4]
-    # TODO TIMER FOR GAMEOVER
-    for port, river in zip(ports, rivers):
-        server = BridgeDefenseServer(port, river)
-        server.serve()
+    serve()
