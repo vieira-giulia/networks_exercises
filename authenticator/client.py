@@ -191,7 +191,7 @@ def cli():
             print("Exceptional error:", e)
             break
 
-    #client_socket.close()
+    client_socket.close()
 
 if __name__ == "__main__":
     cli()

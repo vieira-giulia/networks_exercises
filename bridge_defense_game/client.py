@@ -9,13 +9,6 @@ N_BRIDGES = 8
 selector = selectors.DefaultSelector()
 
 
-# GAME VARIABLES
-
-class Game:
-    river = 0
-    cannons = []
-
-
 # GET CLIENT SOCKET CONNECTED TO MULTIPLEXER
 
 def get_socket(server_name):
@@ -26,7 +19,7 @@ def get_socket(server_name):
         client_socket = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM)
     client_socket.setblocking(False) 
     selector.register(client_socket, selectors.EVENT_READ, data=server_name)
-    print("Socket for", server_name, "setup successfully!")
+    #print("Socket for", server_name, "setup successfully!")
     return client_socket
 
 
@@ -50,6 +43,42 @@ def receive_message(client_socket):
     return json.loads(client_socket.recv(1024).decode())
     
 
+def print_board(cannon_coords, ship_coords):
+    board = [[' ' for _ in range(17)] for _ in range(9)]
+    
+    # Mark cannons on the board
+    for coord in cannon_coords:
+        row, col = coord
+        board[row - 1][col * 2 - 1] = 'X'  # Black columns are every other column
+    
+    # Mark ships on the board
+    for coord in ship_coords:
+        row, col = coord
+        board[row * 2 - 2][col] = 'O'  # Black rows are every other row
+    
+    # Print column names
+    print('   ', end='')
+    for col in range(1, 10):
+        if col % 2 == 0:
+            print(col, end=' ')
+    print()
+    
+    # Print rows and board content
+    for row in range(1, 10):
+        if row % 2 == 1:
+            print('{:2d}'.format(row), end=' ')
+            for col in range(17):
+                if col % 2 == 0:
+                    print(board[row - 1][col], end=' ')
+            print()
+
+# Example coordinates
+cannon_coords = [(3, 2), (5, 4), (7, 6)]
+ship_coords = [(2, 3), (6, 8), (8, 12)]
+
+# Print the board
+print_board(cannon_coords, ship_coords)
+
 
 # COMMAND LINE INTERFACE
   
@@ -60,117 +89,68 @@ def cli():
     # Generate dicts for games and servers, server_name is key for both dicts
     # I chose to separate them to use the multiplexer more easily with the server sockets
     servers = {}
-    games = {}
     for i in range(1, N_RIVERS+1):
         port = base_port[:-1] + str(i)
         server_address = (server, int(port))
         server_name = "Server " + str(i)
         servers[server_name] = {"server_address": server_address, 
                                 "client_socket": get_socket(server_name)}
-        games[server_name] = Game()
 
-    while True:
-        try: 
-            request_type = sys.argv[3]
-            gas = sys.argv[4]
-            
-            # Other variables that can be necessary for a request
-            # The user either asks for turn_status or to shoot a ship
-            # In the first case there is only one more argument, 
-            # In the second one the user must specify two arguments
-            # cannon_coord and ship_id
-            turn, cannon_coord, ship_id = None, None, None
-            if len(sys.argv) == 7:
-                cannon_coord = sys.argv[5]
-                ship_id = sys.argv[6]
-            elif len(sys.argv) == 6:
-                turn = sys.argv[5]
-            else:
-                pass
+    try:
+        request_type = sys.argv[3]
+        gas = sys.argv[4]
+                
+        turn, cannon_coord, ship_id = None, None, None
+        if len(sys.argv) == 7:
+            cannon_coord = sys.argv[5]
+            ship_id = sys.argv[6]
+        elif len(sys.argv) == 6:
+            turn = sys.argv[5]
+        else:
+            pass
 
-            if request_type in ["authreq", "quit", "getturn"]:
-                for _, server_infos in servers.items():
-                    send_message(client_socket=server_infos["client_socket"],
-                                server_address=server_infos["server_address"],
-                                request_type=request_type, gas=gas, 
-                                turn=turn, cannon_coord=cannon_coord, ship_id=ship_id)
-            
-            elif request_type == "getcannons":
-                server_infos = servers.get("Server 1")
-                send_message(client_socket=server_infos["client_socket"],
-                            server_address=server_infos["server_address"],
-                            request_type=request_type, gas=gas, 
-                            turn=turn, cannon_coord=cannon_coord, ship_id=ship_id)
-            
-            elif request_type == "shot":
-                for server_name, game_info in games.items():
-                    if game_info.river == cannon_coord[1]:
-                        server_infos = servers.get(server_name)
-                        send_message(client_socket=server_infos["client_socket"],
-                            server_address=server_infos["server_address"],
-                            request_type=request_type, gas=gas, 
-                            turn=turn, cannon_coord=cannon_coord, ship_id=ship_id)
-                    if game_info.river == cannon_coord[1]+1:
-                        server_infos = servers.get(server_name)
-                        send_message(client_socket=server_infos["client_socket"],
-                            server_address=server_infos["server_address"],
-                            request_type=request_type, gas=gas, 
-                            turn=turn, cannon_coord=cannon_coord, ship_id=ship_id)
+        if request_type not in ["authreq", "quit", "getturn", "shot", "getcannons"]:
+            print("invalid message!")
 
-            else:
-                print("invalid request")
+        for _, server_infos in servers.items():
+            send_message(client_socket=server_infos["client_socket"],
+                        server_address=server_infos["server_address"],
+                        request_type=request_type, gas=gas, 
+                        turn=turn, cannon_coord=cannon_coord, ship_id=ship_id)
+            if request_type == "getcannons":
                 break
+        
+    except Exception as e:
+        print("Exceptional error while sending message:", e)
+        
 
-            # Get responses for requests.
-            # Response format is also a generalized json, so I made
-            # one function that takes care of that and evaluate information
-            # given afterwards
+    while True:  
+        try:
             events = selector.select()
-            responses = []
             for key, _ in events:
-                # Only case where response is actually a list of messages
-                if request_type == "getturn":
-                    while len(responses) < N_BRIDGES:
-                        responses.append(receive_message(servers.get(key.data)["client_socket"]))
-                else:
-                    response = receive_message(servers.get(key.data)["client_socket"])
-                    print(response)
-                    
-                if response:
-                    if "status" in response:
-                        if response["status"] == 0:
-                            print("Success!")
-                        else:
-                            print("Error, try again")  
-                                
-                    if "river" in response:
-                        games[key.data].river = response["river"]
-                        print("Server {} is river {}", key.data, response["river"])
+                response = receive_message(servers.get(key.data)["client_socket"])
+                
+                if response["type"] == "state":
+                    print(key.data, "Bridge:", response["bridge"])
+                    print("Ships", response["ships"])
 
-                    if "cannons" in response:
-                        for coord in response["cannons"]:
-                            if [coord[0], coord[1]] not in games[key.data].cannons:
-                                games[key.data].cannons.append([coord[0], coord[1]])
-
-                    if "score" in response:
-                        print("Server:", key.data)
-                        print("Score:", response["score"])
-
+                if "status" in response:
+                    if response["status"] == 0:
+                        print("Success!")
                     else:
-                        for response in responses:
-                            ships_list = []
-                            if "bridge" in response and "ships" in response:
-                                ships_list[response["bridge"]] = response["ships"]
-                                # This is part of the ships information adjacent table
-                                # whose header was printted in the beginning
-                                for (bridge, ship_info) in enumerate(ships_list):
-                                    print("ID:", ship_info['id'])
-                                    print("Bridge:", bridge)
-                                    print("River:", games[key.data].river)
-                                    print("HITS:", ship_info['hits'] )
-                                    print("HULL", ship_info["hull"]) 
-            break
-                        
+                        print("Error, try again")  
+                                
+                if "river" in response:
+                    print(key.data, "is river", response["river"])
+
+                if "cannons" in response:
+                    print("Game cannons coordinates:" , response["cannons"])
+
+                if "score" in response:
+                    print("Server:", key.data)
+                    print("Score:", response["score"])           
+
+
         # Exceptional error while using cli        
         except Exception as e:
             print("Exceptional error:", e)

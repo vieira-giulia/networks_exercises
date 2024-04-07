@@ -13,6 +13,7 @@ class Game:
         self.river = river
         self.cannons = [[1,0], [3,0], [8,1], [2,2], [3,3], [8,4]]
         self.ships = []
+        self.turn = 0
         n = 5
         for i in range(n):
             # Generate ships at server's river
@@ -21,7 +22,7 @@ class Game:
             max_hits = random.randrange(len(ship_types))
             hull = ship_types[max_hits]
             # near a bridge
-            bridge = random.randint(1, N_BRIDGES)
+            bridge = random.randint(1, N_BRIDGES+1)
             self.ships.append({
                 "id": i,
                 "hull": hull,
@@ -108,8 +109,12 @@ def handle_cannons_request(request, game, client_address):
 # DISPLAY SHIPS IN THIS RIVER REQUEST
 
 def handle_turn_request(request, game, client_address):
+    if request["turn"] != game.turn:
+        handle_game_termination_request(request, game, client_address)
+        return
+    
     # Get ships positions based on bridges
-    for bridge in range(1, N_BRIDGES):   
+    for bridge in range(1, N_BRIDGES+1):   
         ships = [{"id": obj["id"], "hull": obj["hull"], "hits": obj["hits"]} 
                  for obj in game.ships if obj.get("bridge") == bridge]
         # Generate and send message request
@@ -120,7 +125,6 @@ def handle_turn_request(request, game, client_address):
             "bridge": bridge,
             "ships": ships
             }
-    
         send_message(message, client_address)
     game.update()
 
