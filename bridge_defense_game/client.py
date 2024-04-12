@@ -61,32 +61,31 @@ def print_cannons_to_file(cannon_coords, file_name=AUX_FILE):
     for coord in cannon_coords:
         col, row = coord
         # Bridges are every other column
-        board[row - 1][col * 2 - 1] = 'X'
+        board[2*col-1][2*row] = 'X'
     
     # Open the file for writing
     with open(file_name, 'a') as f:
-        # Print column names
-        f.write('  ')
+        f.write('   | ')
         col_name = 1
         for col in range(0, 2*N_BRIDGES+1):
             if col % 2 != 0:
                 f.write(' | ' + str(col_name) + ' | ')
                 col_name += 1
+            else: f.write(' ')
         f.write('\n')
         
         # Print rows and board content
         row_name = 1
         for row in range(0, 2*N_RIVERS+1):
-            f.write('-------------------------------------------------------------------------------------------')
+            f.write('------------------------------------------------------------------------')
+            f.write('\n')
             if row % 2 != 0:
                 f.write('{:2d}'.format(row_name))
-                for col in range(2*N_BRIDGES+1): print(' | ')
+                for col in range(2*N_BRIDGES+1): f.write(' |  ')
                 row_name += 1
             else: 
-                f.write(' ')
-                for col in range(2*N_BRIDGES+1):
-                    if col % 2 != 0: f.write(' | ' + board[row][col] + ' | ')
-                    else: print(' | ')
+                f.write('  ')
+                for col in range(2*N_BRIDGES+1): f.write(' | ' + board[col][row])
             f.write('\n')
 
 def remove_ships_from_file(file_name=AUX_FILE):
@@ -110,12 +109,12 @@ def print_ships_to_file(ship_coords, file_name=AUX_FILE):
 
     # Mark ships on the board
     for coord in ship_coords:
-        row, col = coord
+        col, row = coord
         # Rivers are every other row
-        board[row * 2 - 2][col] = 'O' 
+        board[2*col][2*row-1] = 'O' 
 
     # Write the updated board to file
-    with open(file_name, 'w') as f:
+    with open(file_name, 'a+') as f:
         for line in board:
             f.write(''.join(line) + '\n')
 
